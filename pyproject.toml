@@ -1,0 +1,18 @@
+[project]
+name = "transferencias-municipais"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "branca>=0.8.2",
+    "duckdb>=1.5.4",
+    "folium>=0.20.0",
+    "marimo>=0.23.13",
+    "pandas>=3.0.3",
+    "plotly>=6.8.0",
+    "pyarrow>=24.0.0",
+    "requests>=2.34.2",
+    "scipy>=1.18.0",
+]
+
+[tool.marimo.runtime]
+output_max_bytes = 50_000_000
