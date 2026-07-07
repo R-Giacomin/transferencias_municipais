@@ -2,7 +2,7 @@
 
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.23.13"
 app = marimo.App(
     width="medium",
     app_title="Painel Transferências Municipais",
@@ -71,7 +71,7 @@ def _(ambiente_preparado):
 
     # Conectar ao DuckDB
     con = duckdb.connect()
-    
+
     # Criar a view ou tabela consolidada unindo transferências e população
     con.execute("""
         CREATE VIEW dados AS
@@ -90,18 +90,19 @@ def _(ambiente_preparado):
         LEFT JOIN 'populacao.parquet' p 
           ON t.ANO = p.ANO AND t.COD_IBGE = p.COD_IBGE
     """)
-    
+
     # Carregar dados em df_full (para compatibilidade e exportação)
     df_full = con.execute("SELECT * FROM dados").df()
-    
+
     # Obter listas únicas para os filtros
     lista_anos = sorted(df_full['Ano'].dropna().unique())
     lista_regioes = sorted(df_full['regiao'].dropna().unique())
     lista_ufs = sorted(df_full['sigla_uf'].dropna().unique())
     lista_tipos = sorted(df_full['tipo_transferencia'].dropna().unique())
     lista_linguagens = sorted(df_full['linguagem_cidada'].dropna().unique())
-    
+
     map_regiao_uf = df_full.groupby('regiao')['sigla_uf'].unique().apply(list).to_dict()
+    map_tipo_linguagem = df_full.groupby('tipo_transferencia')['linguagem_cidada'].unique().apply(list).to_dict()
     return (
         con,
         df_full,
@@ -115,6 +116,7 @@ def _(ambiente_preparado):
         lista_tipos,
         lista_ufs,
         map_regiao_uf,
+        map_tipo_linguagem,
         mo,
         np,
         pd,
@@ -268,7 +270,7 @@ def _(mo):
 
 
 @app.cell
-def _(lista_anos, lista_regioes, lista_tipos, lista_linguagens, mo):
+def _(lista_anos, lista_regioes, lista_tipos, mo):
     filtro_ano = mo.ui.slider(
         start=int(min(lista_anos)), stop=int(max(lista_anos)), step=1,
         value=int(max(lista_anos)), label="**Ano**", full_width=False, show_value=True)
@@ -277,28 +279,30 @@ def _(lista_anos, lista_regioes, lista_tipos, lista_linguagens, mo):
         options={"Todas": "Todas", **{r: r for r in lista_regioes}},
         value="Todas", label="**Região**"
     )
-    
+
     filtro_destino = mo.ui.dropdown(
         options={"Apenas Municipal": "Municipal", "Municipal + Estadual (Todos)": "Todos"},
         value="Municipal + Estadual (Todos)", label="**Destino**"
     )
-    
+
     filtro_tipo = mo.ui.multiselect(
         options={t: t for t in lista_tipos},
         value=lista_tipos, label="**Tipo de Transferência**"
     )
-    
-    filtro_linguagem = mo.ui.multiselect(
-        options={l: l for l in lista_linguagens},
-        value=lista_linguagens, label="**Linguagem Cidadã**"
-    )
-    
+
     filtro_metrica = mo.ui.dropdown(
         options={"Valor Transferido": "valor", "Transferência per capita": "per_capita"},
         value="Transferência per capita", label="**Métrica**"
     )
     filtro_inflacao = mo.ui.switch(value=False, label="**Valores em Reais de 2025**")
-    return filtro_ano, filtro_regiao, filtro_destino, filtro_tipo, filtro_linguagem, filtro_metrica, filtro_inflacao
+    return (
+        filtro_ano,
+        filtro_destino,
+        filtro_inflacao,
+        filtro_metrica,
+        filtro_regiao,
+        filtro_tipo,
+    )
 
 
 @app.cell
@@ -316,10 +320,37 @@ def _(filtro_regiao, lista_ufs, map_regiao_uf, mo):
 
 
 @app.cell
-def _(con, filtro_ano, filtro_regiao, filtro_uf, filtro_destino, filtro_tipo, filtro_linguagem, filtro_metrica, filtro_inflacao):
+def _(filtro_tipo, lista_linguagens, map_tipo_linguagem, mo):
+    if len(filtro_tipo.value) > 0:
+        _ling_disponiveis = []
+        for t in filtro_tipo.value:
+            _ling_disponiveis.extend(map_tipo_linguagem.get(t, []))
+        _ling_disponiveis = sorted(list(set(_ling_disponiveis)))
+    else:
+        _ling_disponiveis = lista_linguagens
+
+    filtro_linguagem = mo.ui.multiselect(
+        options={l: l for l in _ling_disponiveis},
+        value=_ling_disponiveis, label="**Linguagem Cidadã**"
+    )
+    return (filtro_linguagem,)
+
+
+@app.cell
+def _(
+    con,
+    filtro_ano,
+    filtro_destino,
+    filtro_inflacao,
+    filtro_linguagem,
+    filtro_metrica,
+    filtro_regiao,
+    filtro_tipo,
+    filtro_uf,
+):
     where_parts = ["Ano = ?"]
     params_list = [str(filtro_ano.value)]
-    
+
     if filtro_regiao.value != "Todas":
         where_parts.append("regiao = ?")
         params_list.append(filtro_regiao.value)
@@ -328,14 +359,14 @@ def _(con, filtro_ano, filtro_regiao, filtro_uf, filtro_destino, filtro_tipo, fi
         params_list.append(filtro_uf.value)
     if filtro_destino.value == "Municipal":
         where_parts.append("destino = 'Municipal'")
-    
+
     if len(filtro_tipo.value) > 0:
         _placeholders_tipo = ', '.join(['?'] * len(filtro_tipo.value))
         where_parts.append(f"tipo_transferencia IN ({_placeholders_tipo})")
         params_list.extend(filtro_tipo.value)
     else:
         where_parts.append("1=0")
-        
+
     if len(filtro_linguagem.value) > 0:
         _placeholders_ling = ', '.join(['?'] * len(filtro_linguagem.value))
         where_parts.append(f"linguagem_cidada IN ({_placeholders_ling})")
@@ -344,7 +375,7 @@ def _(con, filtro_ano, filtro_regiao, filtro_uf, filtro_destino, filtro_tipo, fi
         where_parts.append("1=0")
 
     where_clause = ' AND '.join(where_parts)
-    
+
     sql_query = f"""
         SELECT 
             Ano,
@@ -359,26 +390,26 @@ def _(con, filtro_ano, filtro_regiao, filtro_uf, filtro_destino, filtro_tipo, fi
         GROUP BY Ano, codigo_ibge, municipio, sigla_uf, regiao
     """
     df_filtered = con.execute(sql_query, params_list).df()
-    
+
     _fatores_inflacao = {
         2014: 1.8235, 2015: 1.6477, 2016: 1.5502, 2017: 1.5058,
         2018: 1.4514, 2019: 1.3914, 2020: 1.3312, 2021: 1.2095,
         2022: 1.1435, 2023: 1.0930, 2024: 1.0426, 2025: 1.0000
     }
-    
+
     if filtro_inflacao.value:
         _fator = _fatores_inflacao.get(int(filtro_ano.value), 1.0)
         df_filtered['Total_Transferido'] = df_filtered['Total_Transferido'] * _fator
-    
+
     if filtro_metrica.value == 'per_capita':
         df_filtered['Metrica'] = (df_filtered['Total_Transferido'] / df_filtered['Populacao']).astype(float)
         nome_metrica = 'Transferência per capita (R$ 2025)' if filtro_inflacao.value else 'Transferência per capita (R$)'
     else:
         df_filtered['Metrica'] = df_filtered['Total_Transferido'].astype(float)
         nome_metrica = 'Valor Transferido (R$ 2025)' if filtro_inflacao.value else 'Valor Transferido (R$)'
-        
+
     df_filtered = df_filtered.sort_values('Metrica', ascending=False)
-    
+
     return df_filtered, nome_metrica
 
 
@@ -520,17 +551,17 @@ def _(
     con,
     df_filtered,
     filtro_ano,
-    filtro_regiao,
-    filtro_uf,
     filtro_destino,
-    filtro_tipo,
+    filtro_inflacao,
     filtro_linguagem,
     filtro_metrica,
-    filtro_inflacao,
-    nome_metrica,
+    filtro_regiao,
+    filtro_tipo,
+    filtro_uf,
     gaussian_kde,
     go,
     mo,
+    nome_metrica,
     np,
     pd,
     px,
@@ -750,13 +781,13 @@ def _(
     fig_rank,
     fig_ts,
     filtro_ano,
-    filtro_regiao,
-    filtro_uf,
     filtro_destino,
-    filtro_tipo,
+    filtro_inflacao,
     filtro_linguagem,
     filtro_metrica,
-    filtro_inflacao,
+    filtro_regiao,
+    filtro_tipo,
+    filtro_uf,
     header,
     kpi_html,
     metodologia_content,
