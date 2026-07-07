@@ -360,15 +360,15 @@ def _(con, filtro_ano, filtro_regiao, filtro_uf, filtro_destino, filtro_tipo, fi
     """
     df_filtered = con.execute(sql_query, params_list).df()
     
-    fatores_inflacao = {
+    _fatores_inflacao = {
         2014: 1.8235, 2015: 1.6477, 2016: 1.5502, 2017: 1.5058,
         2018: 1.4514, 2019: 1.3914, 2020: 1.3312, 2021: 1.2095,
         2022: 1.1435, 2023: 1.0930, 2024: 1.0426, 2025: 1.0000
     }
     
     if filtro_inflacao.value:
-        fator = fatores_inflacao.get(int(filtro_ano.value), 1.0)
-        df_filtered['Total_Transferido'] = df_filtered['Total_Transferido'] * fator
+        _fator = _fatores_inflacao.get(int(filtro_ano.value), 1.0)
+        df_filtered['Total_Transferido'] = df_filtered['Total_Transferido'] * _fator
     
     if filtro_metrica.value == 'per_capita':
         df_filtered['Metrica'] = (df_filtered['Total_Transferido'] / df_filtered['Populacao']).astype(float)
@@ -657,13 +657,13 @@ def _(
     ts_df['Ano'] = ts_df['Ano'].astype(int)
 
     if filtro_inflacao.value:
-        fatores_inflacao = {
+        _fatores_inflacao = {
             2014: 1.8235, 2015: 1.6477, 2016: 1.5502, 2017: 1.5058,
             2018: 1.4514, 2019: 1.3914, 2020: 1.3312, 2021: 1.2095,
             2022: 1.1435, 2023: 1.0930, 2024: 1.0426, 2025: 1.0000
         }
-        ts_df['fator'] = ts_df['Ano'].map(fatores_inflacao).fillna(1.0)
-        ts_df['media_metrica'] = ts_df['media_metrica'] * ts_df['fator']
+        ts_df['_fator'] = ts_df['Ano'].map(_fatores_inflacao).fillna(1.0)
+        ts_df['media_metrica'] = ts_df['media_metrica'] * ts_df['_fator']
 
     _titulo_ts = (
         f'Trajetória Temporal do Valor Total Transferido por {_group_label}'
