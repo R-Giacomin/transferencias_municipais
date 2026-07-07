@@ -384,7 +384,7 @@ def _(con, filtro_ano, filtro_regiao, filtro_uf, filtro_destino, filtro_tipo, fi
 
 @app.cell
 def _(df_filtered, mo, nome_metrica):
-    n_mun = len(df_filtered)
+    n_mun = df_filtered['codigo_ibge'].nunique()
     total_transferido = df_filtered['Total_Transferido'].sum() if n_mun > 0 else 0
     media_metrica = df_filtered['Metrica'].mean() if n_mun > 0 else 0
     pop_total = df_filtered['Populacao'].sum() if n_mun > 0 else 0
