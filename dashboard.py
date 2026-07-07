@@ -297,7 +297,8 @@ def _(lista_anos, lista_regioes, lista_tipos, lista_linguagens, mo):
         options={"Valor Transferido": "valor", "Transferência per capita": "per_capita"},
         value="Transferência per capita", label="**Métrica**"
     )
-    return filtro_ano, filtro_regiao, filtro_destino, filtro_tipo, filtro_linguagem, filtro_metrica
+    filtro_inflacao = mo.ui.switch(value=False, label="**Valores em Reais de 2025**")
+    return filtro_ano, filtro_regiao, filtro_destino, filtro_tipo, filtro_linguagem, filtro_metrica, filtro_inflacao
 
 
 @app.cell
@@ -315,7 +316,7 @@ def _(filtro_regiao, lista_ufs, map_regiao_uf, mo):
 
 
 @app.cell
-def _(con, filtro_ano, filtro_regiao, filtro_uf, filtro_destino, filtro_tipo, filtro_linguagem, filtro_metrica):
+def _(con, filtro_ano, filtro_regiao, filtro_uf, filtro_destino, filtro_tipo, filtro_linguagem, filtro_metrica, filtro_inflacao):
     where_parts = ["Ano = ?"]
     params_list = [str(filtro_ano.value)]
     
@@ -359,12 +360,22 @@ def _(con, filtro_ano, filtro_regiao, filtro_uf, filtro_destino, filtro_tipo, fi
     """
     df_filtered = con.execute(sql_query, params_list).df()
     
+    fatores_inflacao = {
+        2014: 1.8235, 2015: 1.6477, 2016: 1.5502, 2017: 1.5058,
+        2018: 1.4514, 2019: 1.3914, 2020: 1.3312, 2021: 1.2095,
+        2022: 1.1435, 2023: 1.0930, 2024: 1.0426, 2025: 1.0000
+    }
+    
+    if filtro_inflacao.value:
+        fator = fatores_inflacao.get(int(filtro_ano.value), 1.0)
+        df_filtered['Total_Transferido'] = df_filtered['Total_Transferido'] * fator
+    
     if filtro_metrica.value == 'per_capita':
         df_filtered['Metrica'] = (df_filtered['Total_Transferido'] / df_filtered['Populacao']).astype(float)
-        nome_metrica = 'Transferência per capita (R$)'
+        nome_metrica = 'Transferência per capita (R$ 2025)' if filtro_inflacao.value else 'Transferência per capita (R$)'
     else:
         df_filtered['Metrica'] = df_filtered['Total_Transferido'].astype(float)
-        nome_metrica = 'Valor Transferido (R$)'
+        nome_metrica = 'Valor Transferido (R$ 2025)' if filtro_inflacao.value else 'Valor Transferido (R$)'
         
     df_filtered = df_filtered.sort_values('Metrica', ascending=False)
     
@@ -515,6 +526,7 @@ def _(
     filtro_tipo,
     filtro_linguagem,
     filtro_metrica,
+    filtro_inflacao,
     nome_metrica,
     gaussian_kde,
     go,
@@ -644,6 +656,15 @@ def _(
     ts_df = con.execute(_ts_query, _params_ts).df()
     ts_df['Ano'] = ts_df['Ano'].astype(int)
 
+    if filtro_inflacao.value:
+        fatores_inflacao = {
+            2014: 1.8235, 2015: 1.6477, 2016: 1.5502, 2017: 1.5058,
+            2018: 1.4514, 2019: 1.3914, 2020: 1.3312, 2021: 1.2095,
+            2022: 1.1435, 2023: 1.0930, 2024: 1.0426, 2025: 1.0000
+        }
+        ts_df['fator'] = ts_df['Ano'].map(fatores_inflacao).fillna(1.0)
+        ts_df['media_metrica'] = ts_df['media_metrica'] * ts_df['fator']
+
     _titulo_ts = (
         f'Trajetória Temporal do Valor Total Transferido por {_group_label}'
         if filtro_metrica.value == 'valor'
@@ -735,6 +756,7 @@ def _(
     filtro_tipo,
     filtro_linguagem,
     filtro_metrica,
+    filtro_inflacao,
     header,
     kpi_html,
     metodologia_content,
@@ -750,6 +772,7 @@ def _(
                 <div class="filter-item">{filtro_uf._repr_html_()}</div>
                 <div class="filter-item">{filtro_destino._repr_html_()}</div>
                 <div class="filter-item">{filtro_metrica._repr_html_()}</div>
+                <div class="filter-item">{filtro_inflacao._repr_html_()}</div>
             </div>
             <div class="responsive-filters" style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
                 <div class="filter-item" style="flex:1">{filtro_tipo._repr_html_()}</div>
